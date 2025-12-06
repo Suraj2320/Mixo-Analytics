@@ -36,39 +36,63 @@ export default function CampaignDetails() {
   const tooltipLabelFormatter = (label) =>
     format(new Date(label), "PPp");
   // Real-time SSE Connection
+  // Real-time SSE Connection
   useEffect(() => {
     if (!id) return;
 
-    const eventSource = new EventSource(getCampaignStreamUrl(id));
+    let eventSource;
+    let retryTimeout;
 
-    eventSource.onopen = () => {
-      console.log("SSE Connected");
-      setIsConnected(true);
-    };
-
-    eventSource.onmessage = (event) => {
-      try {
-        const newData = JSON.parse(event.data);
-
-        setRealtimeData(prev => {
-          const newArr = [...prev, newData];
-          // Keep last 30 data points for better visibility
-          if (newArr.length > 30) return newArr.slice(newArr.length - 30);
-          return newArr;
-        });
-      } catch (err) {
-        console.error("Error parsing SSE data", err);
+    const connect = () => {
+      // Close existing connection if any before creating a new one
+      if (eventSource) {
+        eventSource.close();
       }
+
+      eventSource = new EventSource(getCampaignStreamUrl(id));
+
+      eventSource.onopen = () => {
+        console.log("SSE Connected");
+        setIsConnected(true);
+      };
+
+      eventSource.onmessage = (event) => {
+        try {
+          const newData = JSON.parse(event.data);
+
+          setRealtimeData(prev => {
+            const newArr = [...prev, newData];
+            // Keep last 30 data points for better visibility
+            if (newArr.length > 30) return newArr.slice(newArr.length - 30);
+            return newArr;
+          });
+        } catch (err) {
+          console.error("Error parsing SSE data", err);
+        }
+      };
+
+      eventSource.onerror = (err) => {
+        console.error("SSE Error", err);
+        setIsConnected(false);
+        eventSource.close();
+
+        // Attempt to reconnect after 3 seconds
+        retryTimeout = setTimeout(() => {
+          console.log("Attempting to reconnect...");
+          connect();
+        }, 3000);
+      };
     };
 
-    eventSource.onerror = (err) => {
-      console.error("SSE Error", err);
-      eventSource.close();
-      setIsConnected(false);
-    };
+    connect();
 
     return () => {
-      eventSource.close();
+      if (eventSource) {
+        eventSource.close();
+      }
+      if (retryTimeout) {
+        clearTimeout(retryTimeout);
+      }
     };
   }, [id]);
 
